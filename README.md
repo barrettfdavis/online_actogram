@@ -1,6 +1,8 @@
 # online_actogram
 Actogram from browsers history, to screen sleep-wake patterns and sleep disorders.
 
+This repository and tool will be renamed.
+
 Forked from Barrett F. Davis excellent [online_actogram](https://github.com/barrettfdavis/online_actogram) script.
 
 ## Description
