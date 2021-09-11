@@ -1,9 +1,14 @@
 # online_actogram
+Actogram from browsers history, to screen sleep-wake patterns and sleep disorders.
+
+Forked from Barrett F. Davis excellent [online_actogram](https://github.com/barrettfdavis/online_actogram) script.
+
+## Description
 Script to generate an 'online actogram' from google chrome or safari history files
 
 Currently set to import Safari's History.db file AND chrome's History file where applicable on MacOS and Windows. History files are copied from their home directories to a temporary location in the working directory. The temporary copies are then deleted after the script has executed. 
 
-Now supports command line arugments, e.g.: 
+Now supports command line arguments, e.g.: 
 
 ```python actogram.py --freq '30T' --blur True --blursize 9 --start '2020-01-01' --end '2020-08-04'```
 
@@ -20,3 +25,11 @@ Now supports command line arugments, e.g.:
 Plot can most simply be generated from the command line as:
 
 ```python actogram.py```
+
+## Authors
+
+This tool originated from an idea and script by [Barrett F. Davis](https://github.com/barrettfdavis/online_actogram) in August 2020.
+
+## License
+
+MIT Public License.
