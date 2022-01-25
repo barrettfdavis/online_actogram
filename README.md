@@ -14,7 +14,9 @@ Plots will be saved in a new sub-folder called "actograms" with appropriate time
 Script now supports command line arguments (optional) for additional customizability, e.g.: 
 
 ```python actogram.py --freq '15T' --daily_blur 3 --start '2020-01-01' ```
+
 ```python actogram.py --freq '30T' --printer_friendly True```
+
 ```python actogram.py --dims (8,8)```
 
 Where: 
