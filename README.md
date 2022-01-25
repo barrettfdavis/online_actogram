@@ -22,11 +22,17 @@ Script now supports command line arguments (optional) for additional customizabi
 Where: 
 
 --freq determines the granularity of binned online/offline periods (default is 15 minutes increments, ex.  --freq '15T')
+
 --start_date sets initial date to plot from, default is 180 days ago (ex. --start_date '2022-01-01')
+
 —-daily_blur applies median filtering between days (off by default, ex. --daily_blur 3)  
+
 --period_blur applies median filtering between binned time periods (off by default, ex. --period_blur 5)
+
 --normalize normalizes search frequency against max, then applies binary mask (plot shows periods of some search history vs. none, on by default)
+
 --dims sets the relative dimensions of generated actogram plot (ex. --dims (4, 6))
+
 --printer_friendly sets whether activity is shown in black on white (friendly) or vice versa (False by default, ex. --printer_friendly True)
 
 
