@@ -1,12 +1,7 @@
-##############################################################################
-#
-# IMPORT LIBRARIES
-#
-##############################################################################
-
 import os
 import sys
 import sqlite3
+import argparse
 from shutil import copy, rmtree
 
 import numpy as np
@@ -17,19 +12,32 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.gridspec as gridspec
 
+#%% General plot configurations
 
+plt.close('all'); plt.style.use('default')
+for tick in ['xtick.minor.visible', 'ytick.minor.visible']:
+    plt.rcParams[tick] = False
+
+#%%
 class Actography:
-    def __init__(self):
+    def __init__(self, ARGS):
 
-        self.freq ='15T'
+        ARGS = list(vars(ARGS).values())
+        dims, freq, start, end, hblur, dblur, norm, printer = ARGS
 
-        self.hourly_blur = False  # median filter size
-        self.daily_blur = False  # median filter size
-        self.normalize = True
-        self.weekend_color_support = False
+        self.dims = dims
+        self.freq = freq
 
+        if start is not None: self.start = pd.Timestamp(start)
+        else: self.start = pd.Timestamp.today() - pd.DateOffset(days=180)
         self.end = pd.Timestamp.today() - pd.DateOffset(days=1)
-        self.start = pd.Timestamp.today() - pd.DateOffset(days=365)
+
+        self.hblur = hblur
+        self.dblur = dblur
+        self.norm = norm
+
+        self.printer_friendly = printer
+        self.weekend_color_support = False
 
         self.safari_file = 0
         self.chrome_file = 0
@@ -149,7 +157,7 @@ class Actography:
         z = z.T
         for row, zhour in enumerate(z):
             z[row] = ndimage.median_filter(
-                zhour, size=self.hourly_blur, mode='wrap')
+                zhour, size=self.hblur, mode='wrap')
         z = z.round()
 
         return z.T
@@ -162,7 +170,7 @@ class Actography:
 
         for row, zday in enumerate(z):
             z[row] = ndimage.median_filter(
-                zday, size=self.daily_blur, mode='reflect')
+                zday, size=self.dblur, mode='reflect')
 
         return z
 
@@ -219,27 +227,23 @@ class Actography:
             [[np.nan] * len(self.df.columns)]*app, columns=df.columns))
         zz = df.z.values.reshape(len(yy), len(xx), order='F')
 
-        if self.hourly_blur:
-            zz = self.hourly_blur(zz)
-        if self.daily_blur:
-            zz = self.daily_blur(zz)
-        if self.normalize:
-            zz = self.normalize_activity(zz, intv=1)
+        if self.hblur: zz = self.hourly_blur(zz)
+        if self.dblur: zz = self.daily_blur(zz)
+        if self.norm:  zz = self.normalize_activity(zz, intv=1)
 
         self.DD = np.array(pd.to_datetime(xx, unit='D', origin='julian').to_list())
         self.HH = np.arange(df.y.min(), 2 * (df.y.max()+1), self.freq_intv)
-
         self.ZZ = np.tile(zz, (2, 1)).T
 
         if self.weekend_color_support:
-            week = np.array([i.weekday() < 5 for i in act.DD], dtype=int) + 1
+            week = np.array([i.weekday() < 5 for i in self.DD], dtype=int) + 1
             self.ZZ *= week[:, None]
 
         self.df = df  # pass the dataframe back out
 
-    def plot_the_actogram(self, ax, printer_friendly=False, landscape=False):
+    def plot_the_actogram(self, ax, landscape=False):
 
-        cmap = 'binary' if printer_friendly else 'binary_r'
+        cmap = 'binary' if self.printer_friendly else 'binary_r'
 
         if landscape:
 
@@ -280,9 +284,9 @@ class Actography:
 
     def plot_the_cdf(self, ax, ref_ax):
 
-        ax.fill_between(act.HH,
-                        np.nansum(act.ZZ, axis=0) /
-                        np.nansum(act.ZZ, axis=0).max(),
+        ax.fill_between(self.HH,
+                        np.nansum(self.ZZ, axis=0) /
+                        np.nansum(self.ZZ, axis=0).max(),
                         color='grey', alpha=0.2)
 
         ax.xaxis.tick_top()
@@ -291,7 +295,7 @@ class Actography:
         ax.spines['bottom'].set_visible(False)
 
         ax.set_ylim([0, 1])
-        ax.set_xlim(act.HH.min(), act.HH.max())
+        ax.set_xlim(self.HH.min(), self.HH.max())
 
         ax.set_xticks(ref_ax.get_xticks())
         ax.set_xticklabels([])
@@ -300,15 +304,7 @@ class Actography:
         ax.set_yticklabels(['Activity CDF', 1])
 
         ax.yaxis.tick_right()
-        
-        """
-        ax.yaxis.set_label_position("right")
-        
-        ax.set_ylabel('Activity CDF',
-                      x=0, y=1,
-                      rotation=0,
-                      ha='left', va='top')
-                      #transform=ax.transAxes)"""
+
         ax.invert_yaxis()
 
         return ax
@@ -329,20 +325,15 @@ class Actography:
         ax.set_xlabel('Offline (h)')
 
         ax.set_xlim(0, 24)
-        ax.set_ylim(bottom=act.end - pd.DateOffset(days=7), top=act.start)
+        ax.set_ylim(bottom=self.end - pd.DateOffset(days=7), top=self.start)
         ax.tick_params(axis='x', which='major', pad=10)
         ax.invert_xaxis()
 
         return ax
 
-    def saveit(self, fig, orientation='vertical'):
-
-        plt.savefig('actograms/actogram_' + orientation +'_' +
-                    str(pd.to_datetime('today'))[0:10] + '.png', dpi=600)
-
     def plotter(self, printer_friendly=False):
 
-        fig, ax = plt.subplots(figsize=DIMS)
+        fig, ax = plt.subplots(figsize=self.dims)
         plt.subplots_adjust(left=0.1, right=0.75,
                             bottom=0.05, top=0.85,
                             wspace=0.1, hspace=0.2)
@@ -377,15 +368,35 @@ class Actography:
 
         ax_dummy.axis('off')
 
+    def saveit(self, fig, orientation='vertical'):
+
+        plt.savefig('actograms/actogram_' + orientation +'_' +
+                    str(pd.to_datetime('today'))[0:10] + '.png', dpi=600)
+
+
+def main():
+
+    act = Actography(ARGS)
+    figgy = act.plotter()
+    act.saveit(figgy)
 
 if __name__ == '__main__':
 
-    plt.close('all'); plt.style.use('default')
-    for tick in ['xtick.minor.visible', 'ytick.minor.visible']:
-        plt.rcParams[tick] = False
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dims', type=tuple, action='store', default=(6,8))
+    parser.add_argument('--freq', type=str, action='store',default='1T')
 
-    DIMS=(6,8)
+    parser.add_argument('--start', type=str, action='store', default=None)
+    parser.add_argument('--end', type=str, action='store', default=None)
 
-    act = Actography()
-    figgy = act.plotter(printer_friendly=False)
-    act.saveit(figgy)
+    parser.add_argument('--hourly_blur', type=int, action='store', default=0)
+    parser.add_argument('--daily_blur', type=int, action='store', default=0)
+    parser.add_argument('--normalize', type=int, action='store', default=1)
+
+    parser.add_argument('--printer_friendly',  action='store', default=False)
+
+    ARGS, UNK = parser.parse_known_args()
+
+    print(ARGS)
+
+    main()
