@@ -4,220 +4,388 @@
 #
 ##############################################################################
 
-from shutil import copy, rmtree
-import pandas as pd
-import numpy as np
+import os
+import sys
 import sqlite3
-import os, sys
+from shutil import copy, rmtree
 
-from scipy.interpolate import griddata
+import numpy as np
+import pandas as pd
 from scipy import ndimage
 
 import matplotlib.pyplot as plt
-import matplotlib as mpl
+import matplotlib.dates as mdates
+import matplotlib.gridspec as gridspec
 
-import argparse
 
-##############################################################################
-#
-# TUNABLE PARAMETERS
-#
-##############################################################################
-parser = argparse.ArgumentParser(description='Process user inputs')
+class Actography:
+    def __init__(self):
 
-today = pd.Timestamp.today()
-minusyr = pd.Timestamp.today() - pd.DateOffset(days=365)
+        self.freq ='15T'
 
-parser.add_argument('-freq', '--freq', action='store', default='30T')
-parser.add_argument('-median', '--blur', default='True')
-parser.add_argument('-median_size', '--blur_size', action='store', default=9)
-parser.add_argument('-start', '--start_date', action='store', default= minusyr)
-parser.add_argument('-end', '--end_date', action='store', default=today)
+        self.hourly_blur = False  # median filter size
+        self.daily_blur = False  # median filter size
+        self.normalize = True
+        self.weekend_color_support = False
 
-args = parser.parse_args()
+        self.end = pd.Timestamp.today() - pd.DateOffset(days=1)
+        self.start = pd.Timestamp.today() - pd.DateOffset(days=365)
 
-freq = args.freq
-blur = args.blur
-median_size = args.blur_size
-start_date = args.start_date
-end_date = args.end_date
+        self.safari_file = 0
+        self.chrome_file = 0
+        self.df = pd.DataFrame()
 
-##############################################################################
-#
-# FUNCTIONS
-#
-##############################################################################
+        self.HH, self.DD, self.ZZ = None, None, None
 
-# used to make temporary folder with history files
-def copy_address(fname, src, dst_folder='temp_history'): 
-    
-    os.makedirs(dst_folder, exist_ok=True)
-    
-    dst = os.path.join(dst_folder, fname)
-    
-    try:
-        copy(src, dst)
-        return dst
-    
-    except FileNotFoundError: 
-        print('The file \'' + fname + '\' could not be found.')
+        self.create_folders()
+        self.data_setup()
+
+    def create_folders(self):
+        os.makedirs('actograms/', exist_ok=True)
+
+    def data_setup(self):
+
+        self.history_to_temp_folder()
+        self.history_to_working_memory()
+        self.process_df()
+        self.preplot_process()
+
+    def copy_address(self, fname, src, dst_folder='temp_history'):
+
+        os.makedirs(dst_folder, exist_ok=True)
+        dst = os.path.join(dst_folder, fname)
+
+        try:
+            copy(src, dst)
+            return dst
+        except IOError as e:
+            print("Unable to copy file. %s" % e)
+            return 0
+        except FileNotFoundError:
+            print('The file \'' + fname + '\' could not be found.')
+            return 0
+        except Exception:
+            print('Something went wrong, the file \'' +
+                  fname + '\' was not loaded.')
+            return 0
         return 0
+
+    def history_to_temp_folder(self):
+
+        home = os.path.expanduser("~")  # set the path to home directory
+
+        # Define the platform specific path to history files
+        if sys.platform == "darwin":  # Darwin == OSX
+
+            safari_src = os.path.join(home, 'Library/Safari/History.db')
+            chrome_src = os.path.join(home, 'Library/Application Support/Google/Chrome/Default/History')
+
+        elif sys.platform == "win32":
+            safari_src = None  # will not attempt importing safari in windows
+            chrome_src = home + '/AppData/Local/Google/Chrome/User Data/Default/History'
+
+        else:
+            print('Sorry, I''m having trouble with your operating system.')
+            sys.exit()
+
+        self.safari_file = self.copy_address('History.db', safari_src)
+        self.chrome_file = self.copy_address('History', chrome_src)
+
+    def import_history(self, file_name, command_str):
+
+        cnx = sqlite3.connect(file_name)
+
+        df = pd.read_sql_query(command_str, cnx)
+        cnx.commit()
+        cnx.close()
+
+        df.rename(inplace=True, columns={df.columns[0]: 'visit_time'})
+        df = pd.to_datetime(df['visit_time'], errors='coerce').dropna()
+
+        return df
+
+    def history_to_working_memory(self):
+
+        if self.safari_file:
+            command_str = 'SELECT datetime(visit_time+978307200, "unixepoch",\
+                          "localtime") FROM history_visits ORDER BY visit_time DESC;'
+
+            df_safari = self.import_history(self.safari_file, command_str)
+            self.df = pd.concat([self.df, df_safari])
+
+        if self.chrome_file:
+            command_str = "SELECT datetime(last_visit_time/1000000-11644473600,\
+            'unixepoch','localtime'), url FROM urls ORDER BY last_visit_time DESC;"
+
+            df_chrome = self.import_history(self.chrome_file, command_str)
+            self.df = pd.concat([self.df, df_chrome])
+
+        if not(any([self.chrome_file, self.safari_file])):
+            print('\nError: No database(s) imported, in working directory?')
+            sys.exit()
+
+        if os.path.isdir('temp_history'):
+            rmtree('temp_history')
+
+    """ spam redirects can blow up time-windowed search history
+    this gets rid of that issue by capping to some max value in time window"""
+
+    def normalize_activity(self, z, intv):
+
+        z = z.T
+
+        for row, zhour in enumerate(z):
+            z[row][z[row] >= intv] = 1
+            z[row][z[row] <= 0] = 0
+
+        return z.T
+
+    """if you googled a bunch of stuff, ran to make lunch and then came back to
+    google a bunch more right away, this filters out the gap in the middle.
+    median filter means longer periods of inactivity aren't falsely counted"""
+
+    def hourly_blur(self, z):
+
+        z = z.T
+        for row, zhour in enumerate(z):
+            z[row] = ndimage.median_filter(
+                zhour, size=self.hourly_blur, mode='wrap')
+        z = z.round()
+
+        return z.T
+
+    """this denoises small trends in sleep pattern across some number of days
+    using this filter highlites changes in sleep/wake times at the expense
+    of day-to-day actographic resolution"""
+
+    def daily_blur(self, z):
+
+        for row, zday in enumerate(z):
+            z[row] = ndimage.median_filter(
+                zday, size=self.daily_blur, mode='reflect')
+
+        return z
+
+    def process_df(self):
+
+        df = self.df.copy()
+        # rename first column
+        df.rename(inplace=True, columns={0: "visit_time"})
+
+        date_rng = pd.date_range(
+                   df.visit_time.min().replace(hour=0, minute=0, second=0),
+                   df.visit_time.max().replace(hour=0, minute=0, second=0),
+                   freq=self.freq)  # get rid of extraneous hour/second info
+
+        df.visit_time = pd.to_datetime(df.visit_time)
+        df.set_index('visit_time', inplace=True)
+
+        # count number of searches w/in specified date range w/ freq granularity
+        df['sum'] = 1
+        queries = df.resample(self.freq).agg({'sum': 'sum'})
+        df = pd.DataFrame({'z': queries['sum']}, index=pd.to_datetime(date_rng))
+
+        df['x'], df['y'] = df.index.date, df.index.hour
+
+        # if start time was set too far in past, reset to match available data
+        earliest_available_start = pd.Timestamp(df[df['z'] > 0].min()['x'])
+        if earliest_available_start > self.start:
+            self.start = earliest_available_start
+
+        df = df[df.index >= self.start]
+        df = df[df.index <= self.end]
+
+        self.df = df
+
+    def preplot_process(self):
+        # Define the granularity of the x axis (e.g. 15 minute, 1h increments)
+        df = self.df # cutting down on self calls...
     
-    except: 
-        print('Something went wrong, the file \'' + fname + '\' not loaded.')
-        return 0
+        if self.freq[-1] == 'T':
+            self.freq_no = int(24*60/float(self.freq[:-1]))
+            self.freq_intv = float(self.freq[:-1])/60
 
-# used to import the history file databases
+        elif self.freq[-1] == 'H':
+            self.freq_no = int(24*float(self.freq[:-1]))
+            self.freq_intv = float(self.freq[:-1])
 
-def import_history(file_name, command_str):
-    
-    cnx = sqlite3.connect(file_name)
-    
-    df = pd.read_sql_query(command_str,cnx); cnx.commit(); cnx.close()
-    
-    df.rename(inplace=True, columns={ df.columns[0]: 'visit_time'})
-    df = pd.to_datetime(df['visit_time'],errors='coerce').dropna()
+        # Setup the data for pcolor
+        xx = pd.date_range(df.index.min(),
+                           df.index.max()).to_julian_date().tolist()
+        yy = np.arange(df.y.min(), df.y.max()+1, self.freq_intv)
 
-    return df    
+        app = len(xx)*len(yy) - len(df)
+        df = df.append(pd.DataFrame(
+            [[np.nan] * len(self.df.columns)]*app, columns=df.columns))
+        zz = df.z.values.reshape(len(yy), len(xx), order='F')
 
-##############################################################################
-#
-# COPY HISTORY FILES TO TEMP STORAGE FOLDER
-#
-##############################################################################
+        if self.hourly_blur:
+            zz = self.hourly_blur(zz)
+        if self.daily_blur:
+            zz = self.daily_blur(zz)
+        if self.normalize:
+            zz = self.normalize_activity(zz, intv=1)
 
-mydir = os.path.join(os.getcwd()) # get the current working directory
-home = os.path.expanduser("~") # set the path to home directory
+        self.DD = np.array(pd.to_datetime(xx, unit='D', origin='julian').to_list())
+        self.HH = np.arange(df.y.min(), 2 * (df.y.max()+1), self.freq_intv)
 
-# Define the platform specific path to history files
-if sys.platform == "darwin": # Darwin == OSX
-    safari_src = home + '/Library/Safari/History.db'
-    chrome_src = home + '/Library/Application Support/Google/Chrome/Default/History'
+        self.ZZ = np.tile(zz, (2, 1)).T
 
-elif sys.platform == "win32": 
-    safari_src = None # will not attempt importing safari in windows
-    chrome_src = home + '/AppData/Local/Google/Chrome/User Data/Default/History'
+        if self.weekend_color_support:
+            week = np.array([i.weekday() < 5 for i in act.DD], dtype=int) + 1
+            self.ZZ *= week[:, None]
 
-else: 
-    print('Sorry, I''m having trouble with your operating system.')
-    sys.exit()
+        self.df = df  # pass the dataframe back out
 
-safari_file = copy_address('History.db', safari_src)
-chrome_file = copy_address('History', chrome_src)
+    def plot_the_actogram(self, ax, printer_friendly=False, landscape=False):
 
-##############################################################################
-#
-# IMPORT HISTORY FILES and DELETE TEMP STORAGE FOLDER
-#
-##############################################################################
+        cmap = 'binary' if printer_friendly else 'binary_r'
 
-df = pd.DataFrame()
+        if landscape:
 
-if safari_file: 
-    command_str = 'SELECT datetime(visit_time+978307200, "unixepoch",\
-                  "localtime") FROM history_visits ORDER BY visit_time DESC;'
-    
-    df_safari = import_history(safari_file, command_str)
-    df = pd.concat([df, df_safari])
-    
-if chrome_file: 
-    command_str = "SELECT datetime(last_visit_time/1000000-11644473600,\
-    'unixepoch','localtime'), url FROM urls ORDER BY last_visit_time DESC;"
-    
-    df_chrome = import_history(chrome_file, command_str)
-    df = pd.concat([df, df_chrome])
-    
-if not(any([chrome_file,safari_file])):
-    print('\nError: No database(s) imported! Everything in working directory?')
-    sys.exit()
-    
-if os.path.isdir('temp_history'): rmtree('temp_history')
+            ax.pcolormesh(self.DD, self.HH, self.ZZ.T, shading='auto',
+                          cmap=cmap, vmin=0, rasterized=True)
 
-##############################################################################
-#
-# PROCESS DATAFRAME
-#
-##############################################################################
-df.rename(inplace=True, columns={0: "visit_time"}) # rename first column
+            ax.set_yticks(np.arange(0, 48+6, 6)[::-1])
+            ax.set_yticklabels([0, 6, 12, 18, ] * 2 + [24, ])
+            ax.set_xlim(ax.get_xlim())
+            ax.set_ylim(0, 47)
 
-date_rng  = pd.date_range(df.visit_time.min().replace(hour=0, minute=0, second=0),
-                          df.visit_time.max().replace(hour=0, minute=0, second=0),
-                          freq=freq) # get rid of extraneous hour/second info
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b-%d-%Y'))
+            ax.set_xticks(ax.get_xticks()[1:])
+            plt.xticks(rotation=30, ha='right')
 
-df.visit_time = pd.to_datetime(df.visit_time)
-df.set_index('visit_time', inplace=True)
+            ax.tick_params(axis='y', which='major', pad=15)
 
-# count the number of searches within the specified date range w/ freq granularity
-df['sum'] = 1; searches = df.resample(freq).agg({'sum':'sum'})
-df = pd.DataFrame({'z':searches['sum']},index=pd.to_datetime(date_rng))
+        else:
 
-df['x'], df['y'] = df.index.date, df.index.hour
+            ax.pcolormesh(self.HH, self.DD, self.ZZ, shading='auto',
+                          cmap=cmap, vmin=0, rasterized=True)
 
-df = df[df.index >= start_date] # set oldest time to plot from
-df = df[df.index <= end_date] # set most recent time to plot until
-##############################################################################
-#
-# SETUP PLOTTING DATA 
-#
-##############################################################################
+            ax.set_xlim(0, 47)
+            ax.set_xticks(np.arange(0, 48+6, 6))
+            ax.set_xticklabels([0, 6, 12, 18, ] * 2 + [24, ])
 
-# Define the granularity of the y axis (e.g. 15 minute, 2h, 3 day increments)
-if freq[-1] == 'T':
-    freq_no = int(24*60/float(freq[:-1]))
-elif freq[-1] == 'H':
-    freq_no = int(24*float(freq[:-1]))    
-    
-# Setup the data for pcolor
-xi = pd.date_range(df.index.min(), df.index.max()).to_julian_date().tolist()
-yi = np.linspace(df.y.min(), df.y.max(), freq_no)
-zi = griddata((df.index.to_julian_date(),df.index.hour),
-              df.z,(xi[:],yi[:,None]),method='nearest')
+            ax.set_ylim(ax.get_ylim()[::-1])
 
-xid = pd.to_datetime(xi,unit='D',origin='julian').tolist()
+            ax.yaxis.set_major_formatter(mdates.DateFormatter('%d-%b-%Y'))
+            ax.yaxis.set_label_position("right")
+            ax.set_yticks(ax.get_yticks()[1:])
+            ax.yaxis.tick_right()
+            plt.yticks(va='center')
 
-# Apply a median_filter blur if specified
-if blur: zi = ndimage.median_filter(zi,size=median_size)
-zi[zi>0] = 1 # apply binary thresholding (i.e. awake or asleep)
+            ax.tick_params(axis='x', which='major', pad=10)
 
-##############################################################################
-#
-# PLOTTING INFORMATION
-#
-##############################################################################
-""" Explanation: We're going to make two pcolor plots and smush them against
-each other, that way we get the 'double-plotted' effect to better visualize
-a late-night periods of activity """
+        return ax
 
-plt.close('all')
+    def plot_the_cdf(self, ax, ref_ax):
 
-colors, labels = ['midnightblue','cornsilk'], ['Asleep','Awake']
-cmap = mpl.colors.ListedColormap(colors)
+        ax.fill_between(act.HH,
+                        np.nansum(act.ZZ, axis=0) /
+                        np.nansum(act.ZZ, axis=0).max(),
+                        color='grey', alpha=0.2)
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(6, 8))
-fig.suptitle('Double-Plotted Online Actogram',fontsize=14, y=0.92)
-fig.subplots_adjust(hspace=0, wspace=0)
+        ax.xaxis.tick_top()
 
-ax1.pcolor(yi,xid,zi.T,cmap=cmap,shading='auto')
-container = ax2.pcolor(yi,xid,zi.T,cmap=cmap,shading='auto')
+        ax.spines['left'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
 
-ax2.tick_params(axis='y', which='both', length=0)
-plt.setp(ax2.get_yticklabels(), visible=False)
+        ax.set_ylim([0, 1])
+        ax.set_xlim(act.HH.min(), act.HH.max())
 
-ax1.spines['right'].set_visible(False)
-ax2.spines['left'].set_visible(False)
+        ax.set_xticks(ref_ax.get_xticks())
+        ax.set_xticklabels([])
 
-ax1.set(ylabel='Time of Year')
-fig.text(0.5, 0.04, 'Hour of Day', ha='center', va='center')
+        ax.set_yticks([0, 1])
+        ax.set_yticklabels(['Activity CDF', 1])
 
-cb = plt.colorbar(container, ax=ax2, fraction =0.064,pad=0.04)
-cb.set_ticks([0.25,0.75]); cb.set_ticklabels(labels);
-cb.ax.set_yticklabels(labels, rotation='vertical')
-cb.ax.tick_params(size=0, labelsize=12)
+        ax.yaxis.tick_right()
+        
+        """
+        ax.yaxis.set_label_position("right")
+        
+        ax.set_ylabel('Activity CDF',
+                      x=0, y=1,
+                      rotation=0,
+                      ha='left', va='top')
+                      #transform=ax.transAxes)"""
+        ax.invert_yaxis()
 
-ax1.set_xticks([0,6,12,18]); ax1.set_xticklabels([0,6,12,18])
-ax2.set_xticks([0,6,12,18]); ax2.set_xticklabels([0,6,12,18])
+        return ax
 
-ax1.set_ylim(ax1.get_ylim()[::-1])
-ax2.set_ylim(ax2.get_ylim()[::-1])
+    def plot_the_timeshare(self, ax, ref_ax):
 
-plt.show()
+        offline = 24 - np.nansum(self.ZZ * self.freq_intv/2, axis=1)
+        offline_avg = pd.Series(offline).rolling(window=7, min_periods=0).mean()
+
+        ax.fill_betweenx(self.DD, offline_avg, color='grey', alpha=0.2)
+        ax.axes.axvline(8, color='k', linestyle='--',lw=0.75)
+
+        ax.spines['left'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+
+        ax.set_yticks([])
+        ax.set_xticks([0, 8, 24])
+        ax.set_xlabel('Offline (h)')
+
+        ax.set_xlim(0, 24)
+        ax.set_ylim(bottom=act.end - pd.DateOffset(days=7), top=act.start)
+        ax.tick_params(axis='x', which='major', pad=10)
+        ax.invert_xaxis()
+
+        return ax
+
+    def saveit(self, fig, orientation='vertical'):
+
+        plt.savefig('actograms/actogram_' + orientation +'_' +
+                    str(pd.to_datetime('today'))[0:10] + '.png', dpi=600)
+
+    def plotter(self, printer_friendly=False):
+
+        fig, ax = plt.subplots(figsize=DIMS)
+        plt.subplots_adjust(left=0.1, right=0.75,
+                            bottom=0.05, top=0.85,
+                            wspace=0.1, hspace=0.2)
+
+        plt.text(x=0, y=1.1,
+                 s='Double-Plotted Online Actogram',
+                 ha='left', va='bottom', fontweight='bold', wrap=True)
+
+        plt.text(x=0, y=1.08,
+                 s="Approximate sleep-wake periods, generated"
+                 " from time stamped internet browser searches."
+                 " Increments of {} minutes."
+                 " Last updated {:%b-%d-%Y}.".format(
+                    int(60/(self.freq_no/(24))),
+                    pd.Timestamp.today()),
+                 ha='left', va='top', wrap=True)
+
+        ax.axis('off')
+
+        spec = gridspec.GridSpec(ncols=2, nrows=2,
+                                 height_ratios=[0.9, 0.1],
+                                 width_ratios=[0.2, 0.8])
+
+        ax_timeshare = fig.add_subplot(spec[0, 0])
+        ax_actogram = fig.add_subplot(spec[0, 1])
+        ax_dummy = fig.add_subplot(spec[1, 0])
+        ax_cdf = fig.add_subplot(spec[1, 1])
+
+        self.plot_the_actogram(ax_actogram, printer_friendly)
+        self.plot_the_timeshare(ax_timeshare, ax_actogram)
+        self.plot_the_cdf(ax_cdf, ax_actogram)
+
+        ax_dummy.axis('off')
+
+
+if __name__ == '__main__':
+
+    plt.close('all'); plt.style.use('default')
+    for tick in ['xtick.minor.visible', 'ytick.minor.visible']:
+        plt.rcParams[tick] = False
+
+    DIMS=(6,8)
+
+    act = Actography()
+    figgy = act.plotter(printer_friendly=False)
+    act.saveit(figgy)
