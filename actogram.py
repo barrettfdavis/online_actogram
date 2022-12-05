@@ -100,7 +100,10 @@ class Actography:
 
         def find_firefox_profile(self, home):
             cwd = os.getcwd()
-            profile_dir = os.path.join(home, 'Library/Application Support/Firefox/Profiles')
+            if sys.platform == "darwin":
+                profile_dir = os.path.join(home, 'Library/Application Support/Firefox/Profiles')
+            elif sys.platform == "win32":
+                profile_dir = os.path.join(home, 'AppData/Roaming/Mozilla/Firefox/Profiles')
             os.chdir(profile_dir)
             profile = glob.glob('*.default-release')
             os.chdir(cwd)
@@ -122,7 +125,7 @@ class Actography:
             elif sys.platform == "win32":
                 safari_src = None
                 chrome_src = home + '/AppData/Local/Google/Chrome/User Data/Default/History'
-                firefox_src = None  # TODO
+                firefox_src = os.path.join(self.find_firefox_profile(home), 'places.sqlite')
                 edge_src = None  # TODO
 
             else:
