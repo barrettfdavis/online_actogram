@@ -108,32 +108,32 @@ class Actography:
             return profile_path
 
         def lookup_history_filepaths(self):
-                """ check which OS user is running script from, then 
-                check typical file paths for popular browser history files """
+            """ check which OS user is running script from, then
+            check typical file paths for popular browser history files """
 
-                home = os.path.expanduser("~")
+            home = os.path.expanduser("~")
 
-                if sys.platform == "darwin":  # Darwin == OSX
-                    safari_src = os.path.join(home, 'Library/Safari/History.db')
-                    chrome_src = os.path.join(home, 'Library/Application Support/Google/Chrome/Default/History')
-                    firefox_src = os.path.join(self.find_firefox_profile(home), 'places.sqlite')
-                    edge_src = None # TODO
+            if sys.platform == "darwin":  # Darwin == OSX
+                safari_src = os.path.join(home, 'Library/Safari/History.db')
+                chrome_src = os.path.join(home, 'Library/Application Support/Google/Chrome/Default/History')
+                firefox_src = os.path.join(self.find_firefox_profile(home), 'places.sqlite')
+                edge_src = None  # TODO
 
-                elif sys.platform == "win32":
-                    safari_src = None
-                    chrome_src = home + '/AppData/Local/Google/Chrome/User Data/Default/History'
-                    firefox_src = None # TODO
-                    edge_src = None # TODO
+            elif sys.platform == "win32":
+                safari_src = None
+                chrome_src = home + '/AppData/Local/Google/Chrome/User Data/Default/History'
+                firefox_src = None  # TODO
+                edge_src = None  # TODO
 
-                else:
-                    print('Sorry, having trouble with your operating system.')
-                    sys.exit()
+            else:
+                print('Sorry, having trouble with your operating system.')
+                sys.exit()
 
-                self.history_loc_dict = {'safari':   [safari_src, 'History.db'],
-                                         'chrome':   [chrome_src, 'History'],
-                                         'firefox':  [firefox_src, 'places.sqlite'],
-                                         'edge':     [edge_src, 'History']
-                                         }
+            self.history_loc_dict = {'safari': [safari_src, 'History.db'],
+                                     'chrome': [chrome_src, 'History'],
+                                     'firefox': [firefox_src, 'places.sqlite'],
+                                     'edge': [edge_src, 'History']
+                                     }
 
         def copy_history_to_temp_folder(self):
             """ Iterate through each file referenced in the history_loc_dict 
