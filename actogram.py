@@ -98,6 +98,15 @@ class Actography:
             self.import_history_to_working_memory()
             self.delete_temporary_history_folder()
 
+        def find_firefox_profile(self, home):
+            cwd = os.getcwd()
+            profile_dir = os.path.join(home, 'Library/Application Support/Firefox/Profiles')
+            os.chdir(profile_dir)
+            profile = glob.glob('*.default-release')
+            os.chdir(cwd)
+            profile_path = os.path.join(profile_dir, profile[0])
+            return profile_path
+
         def lookup_history_filepaths(self):
                 """ check which OS user is running script from, then 
                 check typical file paths for popular browser history files """
@@ -107,7 +116,7 @@ class Actography:
                 if sys.platform == "darwin":  # Darwin == OSX
                     safari_src = os.path.join(home, 'Library/Safari/History.db')
                     chrome_src = os.path.join(home, 'Library/Application Support/Google/Chrome/Default/History')
-                    firefox_src = None # TODO
+                    firefox_src = os.path.join(self.find_firefox_profile(home), 'places.sqlite')
                     edge_src = None # TODO
 
                 elif sys.platform == "win32":
@@ -122,7 +131,7 @@ class Actography:
 
                 self.history_loc_dict = {'safari':   [safari_src, 'History.db'],
                                          'chrome':   [chrome_src, 'History'],
-                                         'firefox':  [firefox_src, 'History'],
+                                         'firefox':  [firefox_src, 'places.sqlite'],
                                          'edge':     [edge_src, 'History']
                                          }
 
@@ -176,6 +185,8 @@ class Actography:
                         'unixepoch','localtime'), url FROM urls ORDER BY last_visit_time DESC;"
 
                     elif key == 'firefox':
+                        command_str = 'SELECT datetime(visit_date/1000000,\
+                        "unixepoch", "localtime") FROM moz_historyvisits ORDER BY visit_date ASC;'
                         pass
 
                     elif key == 'edge':
