@@ -181,7 +181,8 @@ class Actography:
                     elif key == 'edge':
                         pass
 
-                    df = self._import_history_func(src, command_str)
+                    temp_src = os.path.join('temp_history', fname)
+                    df = self._import_history_func(temp_src, command_str)
                     self.act.df = pd.concat([self.act.df, df])
 
         def delete_temporary_history_folder(self):
