@@ -54,7 +54,7 @@ Where:
 
 ## Authors
 
-This tool originated from an idea and script by [Barrett F. Davis](https://github.com/barrettfdavis/online_actogram) in August 2020.
+This tool originated from an idea and script by [Barrett F. Davis](https://github.com/barrettfdavis/online_actogram), initially released in August 2020.
 
 ## License
 
