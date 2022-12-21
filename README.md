@@ -6,7 +6,7 @@ This repository and tool will be renamed.
 Forked from Barrett F. Davis excellent [online_actogram](https://github.com/barrettfdavis/online_actogram) script.
 
 ## Description
-Script to generate an 'online actogram' from google chrome or safari history files
+Script to generate an 'online actogram' from google chrome or safari history files. The graphical presentation was inspired by this [UCSD tutorial](https://ccb.ucsd.edu/the-bioclock-studio/education-resources/basics/part2.html) and [this scientific paper](https://doi.org/10.1186/1741-7007-8-93).
 
 Currently set to import Safari's History.db file AND chrome's History file where applicable on MacOS and Windows. History files are copied from their home directories to a temporary location in the working directory. The temporary copies are then deleted after the script has executed. 
 
@@ -54,8 +54,13 @@ Where:
 
 ## Authors
 
-This tool originated from an idea and script by [Barrett F. Davis](https://github.com/barrettfdavis/online_actogram), initially released in August 2020.
+This tool originated from an idea and script by [Barrett F. Davis](https://github.com/barrettfdavis/online_actogram), initially released in [August 2020](https://web.archive.org/web/20221127100155/https://www.reddit.com/r/N24/comments/hxve2w/dont_delete_your_browser_history/).
 
 ## License
 
 MIT Public License.
+
+## Similar projects
+
+Another project, inspired by this one, was written in Javascript using D3, but it cannot fetch browser's history: [Tylian's D3 Browser's History](https://web.archive.org/web/20221207124930/https://tylian.net/d3/history.html).
+
