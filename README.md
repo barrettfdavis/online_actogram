@@ -54,7 +54,7 @@ Where:
 
 ## Authors
 
-This tool originated from an idea and script by [Barrett F. Davis](https://github.com/barrettfdavis/online_actogram), initially released in [August 2020](https://web.archive.org/web/20221127100155/https://www.reddit.com/r/N24/comments/hxve2w/dont_delete_your_browser_history/).
+This tool originated from an idea and script by [Barrett F. Davis](https://github.com/barrettfdavis/online_actogram), initially released in [July 2020](https://web.archive.org/web/20221127100155/https://www.reddit.com/r/N24/comments/hxve2w/dont_delete_your_browser_history/).
 
 ## License
 
